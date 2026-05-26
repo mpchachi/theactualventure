@@ -9,12 +9,117 @@
 html, body {
   height: 100%;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--cream, #f5f0e8);
 }
 
-@layer base {
-  @keyframes cloud-drift {
-    0% { transform: translateX(-30vw); }
-    100% { transform: translateX(130vw); }
+/* ─── Paleta ───────────────────────────────────────────────────────────── */
+:root {
+  --cream:      #f5f0e8;
+  --cream-soft: #ece6dc;
+  --sand:       #dce5d4;
+  --sage-soft:  #c4d3ba;
+  --sage:       #a8c0a0;
+  --sage-deep:  #7d9b76;
+  --ink:        #1a1c18;
+  --ink-soft:   #4a4a4a;
+}
+
+/* ─── Keyframes ────────────────────────────────────────────────────────── */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+@keyframes drift-x {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(36px); }
+}
+
+/* ─── Componentes ──────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Grano de papel */
+  .lp-grain {
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: 0.04; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   }
+
+  /* Eyebrow */
+  .lp-eyebrow {
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--sage-deep);
+  }
+
+  /* CTA pill — sin ::before que tape el texto */
+  .lp-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 999px;
+    background: var(--sage-deep);
+    color: var(--cream);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: 0 8px 24px -8px color-mix(in oklab, var(--sage-deep) 60%, transparent);
+    transition: background-color 220ms ease, transform 180ms ease;
+  }
+  .lp-cta:hover  { background-color: var(--ink); transform: translateY(-2px); }
+  .lp-cta:active { transform: translateY(0); }
+
+  /* Link secundario */
+  .lp-link {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--sage-deep);
+    white-space: nowrap;
+    border-bottom: 1px solid transparent;
+    transition: border-color 160ms;
+  }
+  .lp-link:hover { border-bottom-color: var(--sage-deep); }
+
+  /* Card */
+  .lp-card {
+    position: relative;
+    background: var(--sand);
+    border: 1px solid color-mix(in oklab, var(--sage) 50%, transparent);
+    border-radius: 1.5rem;
+    overflow: visible;
+    transition: transform 280ms cubic-bezier(.2,.8,.2,1), box-shadow 280ms;
+  }
+  .lp-card:hover {
+    transform: translateY(-8px);
+    box-shadow:
+      0 20px 40px -16px color-mix(in oklab, var(--sage-deep) 45%, transparent),
+      0 8px 16px -8px  color-mix(in oklab, var(--ink) 18%, transparent);
+  }
+
+  /* Flecha circular en card */
+  .lp-arrow {
+    flex-shrink: 0;
+    width: 2.25rem; height: 2.25rem;
+    border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid color-mix(in oklab, var(--sage-deep) 22%, transparent);
+    color: var(--ink);
+    transition: background-color 200ms, color 200ms, transform 200ms;
+  }
+  .lp-card:hover .lp-arrow {
+    background: var(--sage-deep);
+    color: var(--cream);
+    transform: rotate(-45deg);
+  }
+
+  /* Animaciones de decoración */
+  .lp-float      { animation: float-y  6s ease-in-out infinite; }
+  .lp-float-slow { animation: float-y  9s ease-in-out infinite; }
+  .lp-drift      { animation: drift-x 22s ease-in-out infinite alternate; }
 }
