@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Matter from 'matter-js';
 import { createWorld } from '@/lib/physics/world';
 import { buildLevel, TARGET_DEFS, type LevelBodies } from '@/lib/physics/level';
@@ -21,6 +22,7 @@ const TOTAL_TARGETS = TARGET_DEFS.length;
 type Props = { inputProvider?: InputProvider };
 
 export default function SlingshotGame({ inputProvider }: Props) {
+  const router = useRouter();
   const containerRef      = useRef<HTMLDivElement>(null);
   const birdsRef          = useRef<(HTMLDivElement | null)[]>([]);
   const targetsRef        = useRef<(HTMLDivElement | null)[]>([]);
@@ -51,21 +53,20 @@ export default function SlingshotGame({ inputProvider }: Props) {
       setGameState({ birdsLeft, score, phase }); 
       if (phase === 'gameover' || phase === 'win') {
         const frames = sessionLogger.stop();
-        const metrics = BiomechanicsDSP.processSlingshotMetrics(frames);
-        console.log("CLINICAL METRICS (Slingshot):", metrics);
-        try {
-          const history = JSON.parse(localStorage.getItem("clinical_metrics_slingshot") || "[]");
-          history.push({ date: new Date().toISOString(), ...metrics });
-          localStorage.setItem("clinical_metrics_slingshot", JSON.stringify(history));
-        } catch (e) {
-          console.error("Error saving clinical metrics:", e);
+        if (frames.length >= 10) {
+          const metrics = BiomechanicsDSP.processSlingshotMetrics(frames);
+          console.log("CLINICAL METRICS (Slingshot):", metrics);
+          try {
+            const history = JSON.parse(localStorage.getItem("clinical_metrics_slingshot") || "[]");
+            history.push({ date: new Date().toISOString(), totalShots: 5 - birdsLeft, ...metrics });
+            localStorage.setItem("clinical_metrics_slingshot", JSON.stringify(history));
+          } catch (e) {
+            console.error("Error saving clinical metrics:", e);
+          }
         }
 
-        // Test Mode Auto-Routing
         if (typeof window !== "undefined" && window.location.search.includes('mode=test')) {
-          setTimeout(() => {
-            window.location.href = '/flappy?mode=test';
-          }, 3500); // 3.5s delay to let them see the Win/Loss screen
+          setTimeout(() => { router.push('/flappy?mode=test'); }, 3500);
         }
       }
     }

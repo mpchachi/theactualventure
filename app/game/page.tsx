@@ -101,7 +101,13 @@ export default function GamePage() {
   const [testMode, setTestMode] = useState(false);
 
   useEffect(() => {
-    setTestMode(new URLSearchParams(window.location.search).get("mode") === "test");
+    const isTest = new URLSearchParams(window.location.search).get("mode") === "test";
+    setTestMode(isTest);
+    if (isTest) {
+      localStorage.removeItem("clinical_metrics_flappy");
+      localStorage.removeItem("clinical_metrics_water");
+      localStorage.removeItem("clinical_metrics_slingshot");
+    }
   }, []);
 
   useEffect(() => {

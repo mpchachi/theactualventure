@@ -111,7 +111,12 @@ export default function Home() {
           </p>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 20, flexWrap: "wrap" }}>
             <button
-              onClick={() => router.push("/game?mode=test")}
+              onClick={() => {
+                localStorage.removeItem("clinical_metrics_flappy");
+                localStorage.removeItem("clinical_metrics_water");
+                localStorage.removeItem("clinical_metrics_slingshot");
+                router.push("/game?mode=test");
+              }}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
                 padding: "0.7em 1.6em", borderRadius: 999,

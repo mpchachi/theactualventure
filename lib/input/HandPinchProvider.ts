@@ -1,29 +1,21 @@
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import { visionSession } from '@/lib/vision-session';
 import type { InputProvider, InputEvent } from './types';
 
 const WORLD_W = 1280;
 const WORLD_H = 720;
 
-// Where the slingshot bird sits — every pinch grabs it here regardless of hand position
 const SLINGSHOT_ANCHOR = { x: 450, y: 520 };
 
-// How much normalized camera delta maps to world pixels.
-// A ~20% camera-width movement → ~180px world ≈ MAX_PULL.
 const DRAG_SCALE = 0.7;
 
-// Pinch thresholds as ratio of pinch_dist / hand_size (scale-invariant)
 const PINCH_START_RATIO = 0.25;
 const PINCH_END_RATIO   = 0.40;
 
 export class HandPinchProvider implements InputProvider {
-  private video: HTMLVideoElement | null = null;
-  private landmarker: HandLandmarker | null = null;
-  private rafId: number | null = null;
-  private stream: MediaStream | null = null;
+  private unsubVision: (() => void) | null = null;
   private subscribers = new Set<(e: InputEvent) => void>();
 
   private isPinching = false;
-  // Normalized camera coords recorded at pinch-start
   private pinchStartX = 0;
   private pinchStartY = 0;
 
@@ -35,17 +27,23 @@ export class HandPinchProvider implements InputProvider {
   }
 
   async start(_canvas: HTMLCanvasElement): Promise<void> {
-    await this.initLandmarker();
-    await this.startCamera();
-    this.loop();
+    await visionSession.start();
+
+    this.unsubVision = visionSession.subscribe((frame) => {
+      if (frame && frame.landmarks.length >= 10) {
+        this.processPinch(frame.landmarks);
+      } else if (this.isPinching) {
+        this.isPinching = false;
+        this.emit('up', SLINGSHOT_ANCHOR.x, SLINGSHOT_ANCHOR.y);
+      }
+    });
+
     this.readyResolve?.();
   }
 
   stop(): void {
-    if (this.rafId !== null) { cancelAnimationFrame(this.rafId); this.rafId = null; }
-    this.stream?.getTracks().forEach(t => t.stop());
-    this.stream = null;
-    if (this.video) { this.video.srcObject = null; this.video.remove(); this.video = null; }
+    this.unsubVision?.();
+    this.unsubVision = null;
     if (this.isPinching) {
       this.isPinching = false;
       this.emit('up', SLINGSHOT_ANCHOR.x, SLINGSHOT_ANCHOR.y);
@@ -56,72 +54,6 @@ export class HandPinchProvider implements InputProvider {
     this.subscribers.add(cb);
     return () => this.subscribers.delete(cb);
   }
-
-  private async initLandmarker(): Promise<void> {
-    const vision = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-    );
-    const orig = console.error;
-    console.error = (...args: unknown[]) => {
-      if (typeof args[0] === 'string' && args[0].startsWith('INFO:')) return;
-      orig.apply(console, args);
-    };
-    try {
-      this.landmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'GPU',
-        },
-        runningMode: 'VIDEO',
-        numHands: 1,
-        minHandDetectionConfidence: 0.4,
-        minHandPresenceConfidence: 0.4,
-        minTrackingConfidence: 0.4,
-      });
-    } finally {
-      console.error = orig;
-    }
-  }
-
-  private async startCamera(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 320, height: 240, facingMode: 'user' },
-      audio: false,
-    });
-    const video = document.createElement('video');
-    video.srcObject = this.stream;
-    video.playsInline = true;
-    video.muted = true;
-    video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;';
-    document.body.appendChild(video);
-    this.video = video;
-    await new Promise<void>(resolve => { video.onloadeddata = () => resolve(); video.play(); });
-  }
-
-  private lastDetectTime = 0;
-
-  private loop = (): void => {
-    const { video, landmarker } = this;
-    if (!video || !landmarker) return;
-
-    const now = performance.now();
-    if (now - this.lastDetectTime > 16) {
-      if (video.readyState >= 2) {
-        const results = landmarker.detectForVideo(video, now);
-        this.lastDetectTime = performance.now();
-        const lm = results.landmarks?.[0];
-        if (lm && lm.length >= 10) {
-          this.processPinch(lm);
-        } else if (this.isPinching) {
-          // Hand left frame — release
-          this.isPinching = false;
-          this.emit('up', SLINGSHOT_ANCHOR.x, SLINGSHOT_ANCHOR.y);
-        }
-      }
-    }
-
-    this.rafId = requestAnimationFrame(this.loop);
-  };
 
   private processPinch(lm: { x: number; y: number; z: number }[]) {
     const thumb = lm[4];

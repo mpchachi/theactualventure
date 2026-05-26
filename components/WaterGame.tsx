@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
+import { useRouter } from "next/navigation";
 import { PronationDetector } from "@/lib/pronation-detector";
 import { SessionLogger } from "@/lib/telemetry/datalogger";
 import { BiomechanicsDSP } from "@/lib/telemetry/biomechanics";
 import { WaterEngine, type WaterState } from "@/lib/water-logic";
 import { WaterSceneManager } from "@/lib/water-scene";
+import { visionSession } from "@/lib/vision-session";
 import Link from "next/link";
 
 export default function WaterGame() {
+  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState("Iniciando cámara...");
@@ -90,26 +92,29 @@ export default function WaterGame() {
 
       if (prevState !== "success" && updated.phase === "success") {
           const frames = sessionLogger.stop();
-          const metrics = BiomechanicsDSP.processWaterMetrics(frames);
-          console.log("CLINICAL METRICS (Water):", metrics);
-          
-          try {
-            const history = JSON.parse(localStorage.getItem("clinical_metrics_water") || "[]");
-            history.push({ date: new Date().toISOString(), ...metrics });
-            localStorage.setItem("clinical_metrics_water", JSON.stringify(history));
-          } catch (e) {
-            console.error("Error saving clinical metrics:", e);
+          if (frames.length >= 10) {
+            const metrics = BiomechanicsDSP.processWaterMetrics(frames);
+            console.log("CLINICAL METRICS (Water):", metrics);
+
+            try {
+              const history = JSON.parse(localStorage.getItem("clinical_metrics_water") || "[]");
+              history.push({ date: new Date().toISOString(), ...metrics });
+              localStorage.setItem("clinical_metrics_water", JSON.stringify(history));
+            } catch (e) {
+              console.error("Error saving clinical metrics:", e);
+            }
           }
 
-          // Auto-Routing
           if (typeof window !== "undefined") {
             setTimeout(() => {
               if (window.location.search.includes('mode=test')) {
-                window.location.href = '/dashboard';
+                visionSession.stop();
+                router.push('/dashboard');
               } else {
-                window.location.href = '/';
+                visionSession.stop();
+                router.push('/');
               }
-            }, 3500); // 3.5s delay to let the user read the success screen
+            }, 3500);
           }
       }
 
@@ -122,78 +127,32 @@ export default function WaterGame() {
     }
     window.addEventListener("resize", onResize);
 
-    // 3. MediaPipe camera setup
-    const video = document.createElement("video");
-    video.setAttribute("playsinline", "");
-    video.setAttribute("autoplay", "");
-    video.muted = true;
+    // 3. Vision session (shared camera + MediaPipe)
+    let unsubVision: (() => void) | null = null;
 
-    let lastVideoTime = -1;
-    let results: ReturnType<HandLandmarker["detectForVideo"]> | null = null;
-
-    async function start() {
-      setStatus("Cargando modelo de detección...");
-      const vision = await FilesetResolver.forVisionTasks("/wasm");
-
-      setStatus("Inicializando detector...");
-      const handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-        numHands: 1,
-        minHandDetectionConfidence: 0.4,
-        minHandPresenceConfidence: 0.4,
-        minTrackingConfidence: 0.4,
-      });
-
-      setStatus("Solicitando cámara...");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
-        audio: false,
-      });
-
-      video.srcObject = stream;
-      await new Promise<void>((r) =>
-        video.addEventListener("loadeddata", () => r(), { once: true })
-      );
-
+    async function startVision() {
+      setStatus("Iniciando visión...");
+      await visionSession.start();
       setReady(true);
 
-      function detect() {
+      unsubVision = visionSession.subscribe((frame) => {
         if (disposed) return;
-        const now = performance.now();
-
-        if (video.currentTime !== lastVideoTime && video.readyState >= 2) {
-          lastVideoTime = video.currentTime;
-          results = handLandmarker.detectForVideo(video, now);
-        }
-
-        if (results && results.landmarks && results.landmarks.length > 0) {
-          const pronationRes = detector.update(results.landmarks[0]);
+        if (frame) {
+          const pronationRes = detector.update(frame.landmarks);
           const targetRot = pronationRes.pitcherRotationZ;
           const currentRot = pitcherRotRef.current;
-          
-          // Shortest path angle
+
           let diff = targetRot - currentRot;
           while (diff > Math.PI) diff -= 2 * Math.PI;
           while (diff < -Math.PI) diff += 2 * Math.PI;
-          
-          // 1. Heavy LERP step (0.08 factor instead of 0.15 for extra weight)
+
           let step = diff * 0.08;
-          
-          // 2. Velocity Clamp (Glitch Rejection)
-          // Humans can't rotate their wrist 180 degrees in 1 frame.
-          // Max angular velocity allowed per frame: ~0.06 radians (approx 3.5 degrees/frame)
           const maxStep = 0.06;
           if (step > maxStep) step = maxStep;
           if (step < -maxStep) step = -maxStep;
-          
+
           pitcherRotRef.current = currentRot + step;
 
-          // Passive Telemetry Logging
           const st = engineRef.current?.getState();
           if (st) {
             sessionLogger.logFrame(st.phase, {
@@ -201,17 +160,14 @@ export default function WaterGame() {
               glassCurrentVolume: st.glassCurrentVolume,
               glassTargetVolume: st.glassTargetVolume,
               glassPoisonVolume: st.glassPoisonVolume,
-              round: st.round
+              round: st.round,
             });
           }
         }
-
-        requestAnimationFrame(detect);
-      }
-      detect();
+      });
     }
 
-    start().catch((err) => {
+    startVision().catch((err) => {
       console.error("WaterGame error:", err);
       setStatus("Error: " + (err instanceof Error ? err.message : String(err)));
     });
@@ -221,9 +177,7 @@ export default function WaterGame() {
       cancelAnimationFrame(animId);
       window.removeEventListener("resize", onResize);
       sceneManager.dispose();
-      if (video.srcObject) {
-        (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      }
+      unsubVision?.();
     };
   }, []);
 

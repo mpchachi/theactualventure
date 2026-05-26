@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
+import { useRouter } from "next/navigation";
 import { FistDetector } from "@/lib/fist-detector";
 import { FlappyEngine, FlappyState } from "@/lib/flappy-logic";
 import { FlappySceneManager } from "@/lib/flappy-scene";
 import { SessionLogger } from "@/lib/telemetry/datalogger";
 import { BiomechanicsDSP } from "@/lib/telemetry/biomechanics";
+import { visionSession } from "@/lib/vision-session";
 import Link from "next/link";
 
 const EMA_ALPHA_DEFAULT = 0.55;
@@ -38,7 +39,7 @@ class SingleHandSmoother {
       const s = {
         x: p.x + EMA_ALPHA_DEFAULT * (raw[i].x - p.x),
         y: p.y + EMA_ALPHA_DEFAULT * (raw[i].y - p.y),
-        z: p.z + (EMA_ALPHA_DEFAULT * 0.35) * (raw[i].z - p.z),
+        z: p.z + EMA_ALPHA_DEFAULT * (raw[i].z - p.z),
       };
       smoothed.push(s);
       this.prev[i] = s;
@@ -69,6 +70,7 @@ function mapLandmarks(raw: { x: number; y: number; z: number }[]): { x: number; 
 }
 
 export default function FlappyGame() {
+  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState("Iniciando cámara...");
   const [ready, setReady] = useState(false);
@@ -159,22 +161,22 @@ export default function FlappyGame() {
         // Trigger DSP processing if the game just ended
         if (updated.status === "gameover") {
           const frames = sessionLogger.stop();
-          const metrics = BiomechanicsDSP.processFlappyMetrics(frames);
-          console.log("CLINICAL METRICS (Flappy):", metrics);
-          
-          try {
-            const history = JSON.parse(localStorage.getItem("clinical_metrics_flappy") || "[]");
-            history.push({ date: new Date().toISOString(), ...metrics });
-            localStorage.setItem("clinical_metrics_flappy", JSON.stringify(history));
-          } catch (e) {
-            console.error("Error saving clinical metrics:", e);
+          if (frames.length >= 10) {
+            const metrics = BiomechanicsDSP.processFlappyMetrics(frames);
+            const durationSeconds = Math.round((frames[frames.length - 1].timestamp - frames[0].timestamp) / 1000);
+            console.log("CLINICAL METRICS (Flappy):", metrics);
+
+            try {
+              const history = JSON.parse(localStorage.getItem("clinical_metrics_flappy") || "[]");
+              history.push({ date: new Date().toISOString(), score: updated.score, durationSeconds, ...metrics });
+              localStorage.setItem("clinical_metrics_flappy", JSON.stringify(history));
+            } catch (e) {
+              console.error("Error saving clinical metrics:", e);
+            }
           }
 
-          // Test Mode Auto-Routing
           if (typeof window !== "undefined" && window.location.search.includes('mode=test')) {
-            setTimeout(() => {
-              window.location.href = '/water?mode=test';
-            }, 3500); // 3.5s delay
+            setTimeout(() => { router.push('/water?mode=test'); }, 3500);
           }
         }
       } else {
@@ -191,79 +193,34 @@ export default function FlappyGame() {
     }
     window.addEventListener("resize", onResize);
 
-    // 4. MediaPipe camera setup (tracks hand behind the scenes)
-    const video = document.createElement("video");
-    video.setAttribute("playsinline", "");
-    video.setAttribute("autoplay", "");
-    video.muted = true;
+    // 4. Vision session (shared camera + MediaPipe)
+    let unsubVision: (() => void) | null = null;
 
-    let lastVideoTime = -1;
-    let results: ReturnType<HandLandmarker["detectForVideo"]> | null = null;
-
-    async function start() {
-      setStatus("Cargando modelo de detección...");
-      const vision = await FilesetResolver.forVisionTasks("/wasm");
-
-      setStatus("Inicializando detector...");
-      const handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-        numHands: 1, // only need one hand for flappy bird controls
-        minHandDetectionConfidence: 0.4,
-        minHandPresenceConfidence: 0.4,
-        minTrackingConfidence: 0.4,
-      });
-
-      setStatus("Solicitando cámara...");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
-        audio: false,
-      });
-
-      video.srcObject = stream;
-      await new Promise<void>((r) =>
-        video.addEventListener("loadeddata", () => r(), { once: true })
-      );
-
+    async function startVision() {
+      setStatus("Iniciando visión...");
+      await visionSession.start();
       setReady(true);
 
-      function detect() {
+      unsubVision = visionSession.subscribe((frame) => {
         if (disposed) return;
-        const now = performance.now();
-
-        if (video.currentTime !== lastVideoTime && video.readyState >= 2) {
-          lastVideoTime = video.currentTime;
-          results = handLandmarker.detectForVideo(video, now);
-        }
-
-        if (results && results.landmarks && results.landmarks.length > 0) {
-          const mapped = results.landmarks.map(mapLandmarks);
+        if (frame) {
+          const mapped = [mapLandmarks(frame.landmarks)];
           const smoothed = smoother.smooth(mapped);
-
-          // Update fist strength from the main hand
           const fistRes = fistDetector.update(smoothed[0]);
           fistStrengthRef.current = fistRes.strength;
           setFistStrength(fistRes.strength);
 
-          // Passive Telemetry Logging
           sessionLogger.logFrame(engineRef.current?.getState().status || "unknown", {
-            fistStrength: fistRes.strength
+            fistStrength: fistRes.strength,
           });
         } else {
           fistStrengthRef.current = 0;
           setFistStrength(0);
         }
-
-        requestAnimationFrame(detect);
-      }
-      detect();
+      });
     }
 
-    start().catch((err) => {
+    startVision().catch((err) => {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
       console.error("FlappyGame error:", err);
       setStatus("Error: " + msg);
@@ -274,11 +231,9 @@ export default function FlappyGame() {
       cancelAnimationFrame(animId);
       window.removeEventListener("resize", onResize);
       sceneManager.dispose();
-      if (video.srcObject) {
-        (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      }
+      unsubVision?.();
     };
-  }, []); // <-- Removed fistStrength from dependencies to prevent constant restarts!
+  }, []);
 
   const handleRestart = () => {
     setCountdown(5);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { visionSession } from "@/lib/vision-session";
 
 const WaterGame = dynamic(() => import("@/components/WaterGame"), {
   ssr: false,
@@ -52,6 +53,7 @@ export default function WaterPage() {
   }, []);
 
   function handleSkip() {
+    visionSession.stop();
     router.push("/dashboard");
   }
 

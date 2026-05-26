@@ -70,31 +70,40 @@ export class BiomechanicsDSP {
     // Negative value indicates they got weaker
     const fatigueIndex = peakLastQuarter - peakFirstQuarter;
 
-    // 4. Smoothness (Jerk approximation)
-    // Jerk is the derivative of acceleration (third derivative of position).
-    // Here we treat fistStrength as a 1D position variable.
-    let totalJerk = 0;
-    for (let i = 3; i < activeFrames.length; i++) {
-      // dt in seconds
-      const dt = (activeFrames[i].timestamp - activeFrames[i-1].timestamp) / 1000; 
-      if (dt > 0.001) { // Prevent division by zero or microscopic dt noise
-        // v = ds / dt
-        const v1 = (strengths[i-2] - strengths[i-3]) / dt;
-        const v2 = (strengths[i-1] - strengths[i-2]) / dt;
-        const v3 = (strengths[i] - strengths[i-1]) / dt;
-        
-        // a = dv / dt
-        const a1 = (v2 - v1) / dt;
-        const a2 = (v3 - v2) / dt;
-        
-        // jerk = da / dt
-        const jerk = (a2 - a1) / dt;
-        totalJerk += Math.abs(jerk);
+    // 4. Smoothness (velocity irregularity index)
+    // Measures how erratic the speed changes are. Smooth movement has consistent
+    // velocity profile; spastic movement has sudden speed spikes.
+    // Smooth fistStrength with 5-frame moving average to remove camera noise
+    const WINDOW = 5;
+    const smoothedStrengths: number[] = [];
+    for (let i = 0; i < strengths.length; i++) {
+      const start = Math.max(0, i - Math.floor(WINDOW / 2));
+      const end = Math.min(strengths.length, i + Math.floor(WINDOW / 2) + 1);
+      let sum = 0;
+      for (let j = start; j < end; j++) {
+        sum += strengths[j];
+      }
+      smoothedStrengths.push(sum / (end - start));
+    }
+
+    // Compute frame-to-frame speed (absolute velocity)
+    const speeds: number[] = [];
+    for (let i = 1; i < smoothedStrengths.length; i++) {
+      const dt = (activeFrames[i].timestamp - activeFrames[i-1].timestamp) / 1000;
+      if (dt > 0.001) {
+        speeds.push(Math.abs(smoothedStrengths[i] - smoothedStrengths[i-1]) / dt);
       }
     }
-    
-    // Average jerk over the session. Lower is smoother.
-    const smoothnessJerk = totalJerk / activeFrames.length;
+
+    let smoothnessJerk = 0;
+    if (speeds.length > 2) {
+      const meanSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+      if (meanSpeed > 0.01) {
+        const variance = speeds.reduce((a, s) => a + (s - meanSpeed) ** 2, 0) / speeds.length;
+        // Coefficient of variation of speed: 0-2 smooth, 2-5 normal, >5 spastic
+        smoothnessJerk = Math.sqrt(variance) / meanSpeed;
+      }
+    }
 
     return {
       maxExtension,
@@ -125,26 +134,39 @@ export class BiomechanicsDSP {
     const maxSupination = Math.max(...rotations);
     const maxPronation = Math.min(...rotations);
 
-    // 2. Smoothness (Jerk of pitcherRotationZ during pouring)
+    // 2. Smoothness (velocity irregularity of rotation during pouring)
     const pouringFrames = activeFrames.filter(f => f.phase === "pouring");
-    let totalJerk = 0;
-    if (pouringFrames.length > 3) {
-      for (let i = 3; i < pouringFrames.length; i++) {
-        const dt = (pouringFrames[i].timestamp - pouringFrames[i-1].timestamp) / 1000;
-        if (dt > 0.001) {
-          const v1 = (pouringFrames[i-2].pitcherRotationZ! - pouringFrames[i-3].pitcherRotationZ!) / dt;
-          const v2 = (pouringFrames[i-1].pitcherRotationZ! - pouringFrames[i-2].pitcherRotationZ!) / dt;
-          const v3 = (pouringFrames[i].pitcherRotationZ! - pouringFrames[i-1].pitcherRotationZ!) / dt;
-          
-          const a1 = (v2 - v1) / dt;
-          const a2 = (v3 - v2) / dt;
-          
-          const jerk = (a2 - a1) / dt;
-          totalJerk += Math.abs(jerk);
-        }
+
+    // Smooth rotation signal with 5-frame moving average to remove camera noise
+    const WINDOW = 5;
+    const smoothedRotations: number[] = [];
+    for (let i = 0; i < pouringFrames.length; i++) {
+      const start = Math.max(0, i - Math.floor(WINDOW / 2));
+      const end = Math.min(pouringFrames.length, i + Math.floor(WINDOW / 2) + 1);
+      let sum = 0;
+      for (let j = start; j < end; j++) {
+        sum += pouringFrames[j].pitcherRotationZ!;
+      }
+      smoothedRotations.push(sum / (end - start));
+    }
+
+    // Compute frame-to-frame angular speed
+    const angularSpeeds: number[] = [];
+    for (let i = 1; i < smoothedRotations.length; i++) {
+      const dt = (pouringFrames[i].timestamp - pouringFrames[i-1].timestamp) / 1000;
+      if (dt > 0.001) {
+        angularSpeeds.push(Math.abs(smoothedRotations[i] - smoothedRotations[i-1]) / dt);
       }
     }
-    const smoothnessJerk = pouringFrames.length > 0 ? totalJerk / pouringFrames.length : 0;
+
+    let smoothnessJerk = 0;
+    if (angularSpeeds.length > 2) {
+      const meanSpeed = angularSpeeds.reduce((a, b) => a + b, 0) / angularSpeeds.length;
+      if (meanSpeed > 0.01) {
+        const variance = angularSpeeds.reduce((a, s) => a + (s - meanSpeed) ** 2, 0) / angularSpeeds.length;
+        smoothnessJerk = Math.sqrt(variance) / meanSpeed;
+      }
+    }
 
     // 3. Accuracy & Error
     let totalWaterAccuracy = 0;
@@ -210,35 +232,41 @@ export class BiomechanicsDSP {
       if (dist > maxPullDistance) maxPullDistance = dist;
     });
 
-    // 3. Pull Tremor (Stability while aiming)
-    let totalTremor = 0;
-    if (pinchedFrames.length > 3) {
-      for (let i = 3; i < pinchedFrames.length; i++) {
-        const dt = (pinchedFrames[i].timestamp - pinchedFrames[i-1].timestamp) / 1000;
-        if (dt > 0.001) {
-          const vx1 = (pinchedFrames[i-2].pullX! - pinchedFrames[i-3].pullX!) / dt;
-          const vy1 = (pinchedFrames[i-2].pullY! - pinchedFrames[i-3].pullY!) / dt;
-          
-          const vx2 = (pinchedFrames[i-1].pullX! - pinchedFrames[i-2].pullX!) / dt;
-          const vy2 = (pinchedFrames[i-1].pullY! - pinchedFrames[i-2].pullY!) / dt;
+    // 3. Pull Tremor (Stability while aiming — velocity irregularity of XY)
+    // Smooth pull positions with 5-frame moving average
+    const W = 5;
+    const smoothedX: number[] = [];
+    const smoothedY: number[] = [];
+    for (let i = 0; i < pinchedFrames.length; i++) {
+      const start = Math.max(0, i - Math.floor(W / 2));
+      const end = Math.min(pinchedFrames.length, i + Math.floor(W / 2) + 1);
+      let sx = 0, sy = 0;
+      for (let j = start; j < end; j++) {
+        sx += pinchedFrames[j].pullX!;
+        sy += pinchedFrames[j].pullY!;
+      }
+      smoothedX.push(sx / (end - start));
+      smoothedY.push(sy / (end - start));
+    }
 
-          const vx3 = (pinchedFrames[i].pullX! - pinchedFrames[i-1].pullX!) / dt;
-          const vy3 = (pinchedFrames[i].pullY! - pinchedFrames[i-1].pullY!) / dt;
-
-          const ax1 = (vx2 - vx1) / dt;
-          const ay1 = (vy2 - vy1) / dt;
-          
-          const ax2 = (vx3 - vx2) / dt;
-          const ay2 = (vy3 - vy2) / dt;
-
-          const jx = (ax2 - ax1) / dt;
-          const jy = (ay2 - ay1) / dt;
-          
-          totalTremor += Math.hypot(jx, jy);
-        }
+    // Compute frame-to-frame 2D speed
+    const pullSpeeds: number[] = [];
+    for (let i = 1; i < smoothedX.length; i++) {
+      const dt = (pinchedFrames[i].timestamp - pinchedFrames[i-1].timestamp) / 1000;
+      if (dt > 0.001) {
+        const speed = Math.hypot(smoothedX[i] - smoothedX[i-1], smoothedY[i] - smoothedY[i-1]) / dt;
+        pullSpeeds.push(speed);
       }
     }
-    const pullTremor = pinchedFrames.length > 0 ? totalTremor / pinchedFrames.length : 0;
+
+    let pullTremor = 0;
+    if (pullSpeeds.length > 2) {
+      const meanSpeed = pullSpeeds.reduce((a, b) => a + b, 0) / pullSpeeds.length;
+      if (meanSpeed > 0.1) {
+        const variance = pullSpeeds.reduce((a, s) => a + (s - meanSpeed) ** 2, 0) / pullSpeeds.length;
+        pullTremor = Math.sqrt(variance) / meanSpeed;
+      }
+    }
 
     // 4. Accuracy
     const lastFrame = activeFrames[activeFrames.length - 1];
