@@ -57,7 +57,7 @@
 ```
 Cámara → MediaPipe → Landmarks (21 puntos XYZ)
                           │
-                    Suavizado EMA (α=0.55)
+                    Suavizado EMA (α=0.55, X/Y/Z uniforme)
                           │
                     Detectores especializados
                           │

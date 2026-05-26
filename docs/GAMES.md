@@ -18,7 +18,7 @@ El paciente hace una **pinza** (pulgar contra índice) para agarrar el tirachina
 | Distancia de arrastre | Potencia del lanzamiento |
 
 ### Métricas capturadas
-Apertura máxima de pinza · Distancia de pull · Tremor de pull · Precisión  
+Apertura máxima de pinza · Distancia de pull · Tremor de pull (CV velocidad) · Precisión  
 → Ver [CLINICAL_METRICS.md](CLINICAL_METRICS.md#tirachinas)
 
 ### Parámetros configurables
@@ -52,7 +52,7 @@ El paciente **cierra el puño** para que el avión suba y **lo abre** para que b
 | Amplitud del movimiento | Velocidad de respuesta del avión |
 
 ### Métricas capturadas
-ROM extensión · ROM flexión · Activaciones · Índice de fatiga · Jerk  
+ROM extensión · ROM flexión · Activaciones · Índice de fatiga · Suavidad (CV velocidad)  
 → Ver [CLINICAL_METRICS.md](CLINICAL_METRICS.md#avión)
 
 ### Parámetros configurables
@@ -63,7 +63,7 @@ ROM extensión · ROM flexión · Activaciones · Índice de fatiga · Jerk
 | Fuerza de impulso | 0.018 | `lib/flappy-logic.ts` → `THRUST` |
 | Velocidad de columnas | 3 px/frame | `lib/flappy-logic.ts` → `COLUMN_SPEED` |
 | Umbral de activación | 0.5 ± 0.1 | `lib/biomechanics.ts` → `ACTIVATION_THRESHOLD` |
-| Factor EMA suavizado | 0.55 | `lib/input/HandPinchProvider.ts` → `EMA_ALPHA` |
+| Factor EMA suavizado | 0.55 (X, Y, Z) | `components/FlappyGame.tsx` → `EMA_ALPHA_DEFAULT` |
 
 ### Criterios de fin de sesión
 El juego termina cuando el avión choca con una columna o con los bordes superior/inferior. En Test Mode, redirige a `/water?mode=test` tras 3.5 s.
@@ -86,7 +86,7 @@ El paciente **rota la muñeca** (como si vertiera un vaso) para inclinar la jarr
 | Posición neutral (muñeca recta) | Jarra vertical, no vierte |
 
 ### Métricas capturadas
-ROM supinación · ROM pronación · Precisión de agua · Error de veneno · Jerk · Tiempo de vertido  
+ROM supinación · ROM pronación · Precisión de agua · Error de veneno · Suavidad de vertido (CV velocidad angular) · Tiempo de vertido  
 → Ver [CLINICAL_METRICS.md](CLINICAL_METRICS.md#agua)
 
 ### Parámetros configurables

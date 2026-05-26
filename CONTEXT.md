@@ -36,7 +36,7 @@ El paciente hace pinza pulgar-índice para tensar y lanzar un pájaro hacia dian
 Avión de papel que esquiva columnas. El paciente abre y cierra el puño para controlar la altura. Puño cerrado = subir, puño abierto = bajar. Gráficos 3D con Three.js.
 
 **Control:** Fuerza de puño 0–1 mapeada a aceleración vertical.  
-**Métricas clínicas:** ROM extensión máxima, ROM flexión máxima, número de activaciones (reps), índice de fatiga, jerk/suavidad del movimiento.
+**Métricas clínicas:** ROM extensión máxima, ROM flexión máxima, número de activaciones (reps), índice de fatiga, suavidad (CV de velocidad).
 
 ---
 
@@ -44,7 +44,7 @@ Avión de papel que esquiva columnas. El paciente abre y cierra el puño para co
 Jarra 3D que el paciente inclina rotando la muñeca para verter agua en un vaso sin derramar veneno. 3 capas de líquido (agua/veneno/agua), 3 rondas por sesión. Three.js + sistema de partículas.
 
 **Control:** Rotación de muñeca (pronosupinación) → inclinación de la jarra.  
-**Métricas clínicas:** ángulo máximo de supinación y pronación (ROM), precisión del agua vertida, error de veneno, jerk durante el vertido.
+**Métricas clínicas:** ángulo máximo de supinación y pronación (ROM), precisión del agua vertida, error de veneno, suavidad de vertido (CV de velocidad angular).
 
 ---
 
@@ -69,8 +69,9 @@ Al pulsar "Iniciar test" o con `?mode=test` en la URL:
 - **MediaPipe HandLandmarker** modo VIDEO (detección continua)
 - 21 landmarks por mano, confianza mínima 0.4
 - Resolución de cámara: 320×240 (ligero, suficiente para detección)
-- **Suavizado EMA** α=0.55 para estabilizar posiciones
+- **Suavizado EMA** α=0.55 para estabilizar posiciones (X, Y, Z por igual)
 - Detección de foreshortening (mano apuntando a cámara) → blend con template procedural para evitar jitter
+- Media móvil de 5 frames en métricas de suavidad/temblor para eliminar ruido de alta frecuencia
 
 ### Detectores
 | Archivo | Qué detecta |

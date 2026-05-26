@@ -33,9 +33,11 @@ Cambiar estos valores sin documentar las razones genera regresiones difíciles d
 
 **Razón:** Misma lógica que detección. El tracking puede bajar a 0.4 sin perder la mano en movimientos rápidos como el lanzamiento en Tirachinas.
 
-### Suavizado EMA α=0.55
+### Suavizado EMA α=0.55 (uniforme X/Y/Z)
 
 **Razón:** EMA con `posicion_suave = α * posicion_raw + (1-α) * posicion_anterior`. Un α alto (→1) sigue mejor movimientos rápidos pero transmite más jitter. Un α bajo (→0) suaviza más pero introduce lag. Con α=0.55 el lag percibido en el juego es <2 frames a 30 fps, y el jitter de alta frecuencia queda atenuado lo suficiente para que la curva de fuerza de puño sea legible clínicamente. Probado con pacientes con temblor esencial leve.
+
+**Nota:** El eje Z usa el mismo α que X/Y. Anteriormente Z usaba α×0.35=0.19, lo que causaba que la detección de puño (que usa dist3D) no registrara cierres rápidos correctamente porque la coordenada Z se quedaba retrasada.
 
 ### Tolerancia a frames perdidos: ~12 frames (~400 ms a 30 fps)
 
