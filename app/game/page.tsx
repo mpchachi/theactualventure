@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { HandPinchProvider } from "@/lib/input/HandPinchProvider";
 
-const SlingshotGame = dynamic(() => import("@/components/SlingshotGame"), {
-  ssr: false,
-});
+const SlingshotGame = dynamic(() => import("@/components/SlingshotGame"), { ssr: false });
 
 type Status =
   | { kind: "loading"; message: string }
@@ -43,7 +42,6 @@ function StatusOverlay({ status, onRetry }: { status: Status; onRetry: () => voi
   if (status.kind === "error") {
     return (
       <div style={baseStyle}>
-        <span style={{ fontSize: 52 }}>📷</span>
         <p style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "#ff6b6b" }}>{status.message}</p>
         <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", margin: 0, textAlign: "center", maxWidth: 340 }}>
           Asegúrate de que tu navegador tiene permiso para acceder a la cámara.
@@ -65,10 +63,46 @@ function StatusOverlay({ status, onRetry }: { status: Status; onRetry: () => voi
   return null;
 }
 
+function SkipButton({ label, onClick }: { label: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: "fixed", bottom: 24, right: 24, zIndex: 999,
+        display: "inline-flex", alignItems: "center", gap: 7,
+        padding: "10px 18px", borderRadius: 999,
+        background: hovered ? "rgba(245,240,232,0.98)" : "rgba(245,240,232,0.72)",
+        border: "1px solid rgba(125,155,118,0.4)",
+        backdropFilter: "blur(8px)",
+        fontSize: 12, fontWeight: 700, color: "#1a1c18",
+        letterSpacing: "0.05em", cursor: "pointer",
+        boxShadow: "0 4px 16px -4px rgba(0,0,0,0.18)",
+        transition: "background 180ms, transform 140ms",
+        transform: hovered ? "translateY(-2px)" : "translateY(0)",
+        fontFamily: "'Plus Jakarta Sans', ui-sans-serif",
+      }}
+    >
+      {label}
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+        <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
 export default function GamePage() {
+  const router = useRouter();
   const providerRef = useRef<HandPinchProvider | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "loading", message: "Iniciando cámara…" });
   const [retryKey, setRetryKey] = useState(0);
+  const [testMode, setTestMode] = useState(false);
+
+  useEffect(() => {
+    setTestMode(new URLSearchParams(window.location.search).get("mode") === "test");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,8 +113,7 @@ export default function GamePage() {
       try {
         setStatus({ kind: "loading", message: "Iniciando cámara…" });
         const dummyCanvas = document.createElement("canvas");
-        dummyCanvas.width = 1280;
-        dummyCanvas.height = 720;
+        dummyCanvas.width = 1280; dummyCanvas.height = 720;
         setStatus({ kind: "loading", message: "Solicitando permiso de cámara…" });
         await provider.start(dummyCanvas);
         if (cancelled) return;
@@ -99,19 +132,17 @@ export default function GamePage() {
     }
 
     init();
-
-    return () => {
-      cancelled = true;
-      provider.stop();
-      providerRef.current = null;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; provider.stop(); providerRef.current = null; };
   }, [retryKey]);
 
   function handleRetry() {
     providerRef.current?.stop();
     providerRef.current = null;
     setRetryKey(k => k + 1);
+  }
+
+  function handleSkip() {
+    router.push(testMode ? "/flappy?mode=test" : "/flappy");
   }
 
   return (
@@ -122,6 +153,7 @@ export default function GamePage() {
       {status.kind !== "ready" && (
         <StatusOverlay status={status} onRetry={handleRetry} />
       )}
+      <SkipButton label="Avión" onClick={handleSkip} />
     </>
   );
 }
